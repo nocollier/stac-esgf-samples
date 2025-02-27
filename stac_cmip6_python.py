@@ -28,7 +28,7 @@ def _check(results):
             [item.properties["cmip6:variable_id"] for item in page.items]
         )
         numPage += 1
-        print(f"page {numPage} return {page.extra_files["numReturned"]} items")
+        print(f"page {numPage} returned {page.extra_fields["numReturned"]} items")
     print(f"Found {numMatched} total items, containing variable_id={found}")
 
 
