@@ -1,101 +1,66 @@
+"""
+Using the STAC python client to query the index.
+
+You will see a `query` keyword, but this is not recommended by STAC. It is light
+on features and the language is one of their invention. In contrast, `filters`
+has many features and uses the Common Query Language
+[CQL2](https://docs.ogc.org/is/21-065r2/21-065r2.html) to compose logical
+operators.
+
+NOTE: For the moment, if you want to query a property in the CMIP6 extension, it
+must be prefixed by `properties.`. This is not the desired behavior and will be
+[fixed](https://github.com/stac-extensions/cmip6/issues/9).
+"""
+
 import pystac_client
-import pystac_client.exceptions
+
+ITEMS_PER_PAGE = 100
+
+
+def _check(results):
+    """An example of how to take the results and page through them."""
+    found = set()  # to ensure that we find just the variables in the search
+    numMatched = 0
+    numPage = 0
+    for page in results.pages():
+        numMatched = page.extra_fields["numMatched"]
+        found = found | set(
+            [item.properties["cmip6:variable_id"] for item in page.items]
+        )
+        numPage += 1
+        print(f"page {numPage} return {page.extra_files["numReturned"]} items")
+    print(f"Found {numMatched} total items, containing variable_id={found}")
+
 
 client = pystac_client.Client.open("https://api.stac.ceda.ac.uk")
 
-# Search 1: This works (ok but it was just a basic test)
+# Search for two variables composing a filter using the OR operator
 results = client.search(
     collections="cmip6",
-    max_items=10,
-)
-items = list(results.items_as_dicts())
-print(f"Search 1: Found {len(items)} items\n")
-
-# Search 2: This also works
-results = client.search(
-    collections="cmip6",
-    max_items=None,
-    limit=100,
-    query=[
-        "cmip6:variable_id=rsus",
-        "cmip6:experiment_id=historical",
-    ],
-)
-found = set()
-numMatched = 0
-for page in results.pages():
-    numMatched = page.extra_fields["numMatched"]
-    found = found | set(
-        [
-            (
-                item.properties["cmip6:experiment_id"],
-                item.properties["cmip6:variable_id"],
-            )
-            for item in page.items
-        ]
-    )
-assert found == set([("historical", "rsus")])
-print(f"Search 2: Found {numMatched} items\n")
-
-"""
-The above uses query and works, but I am finding it limiting. Other examples I
-find (even on CEDA's site,
-https://cedadev.github.io/datapoint/usage.html#more-about-searches) are single
-facet only. For example, I cannot figure out how to search for multiple
-variables at once (say `rsus` or `rsds`). Adding another variable item
-overwrites the first one. I looked up the query extension...
-
-https://github.com/stac-api-extensions/query
-
-...and tried to expand the query based on guidance there...
-"""
-
-results = client.search(
-    collections="cmip6",
-    max_items=None,
-    limit=100,
-    query={
-        "query": {
-            "cmip6:experiment_id": {"in": ["historical"]},
-            "cmip6:variable_id": {"in": ["rsus", "rsds"]},
-        }
+    limit=ITEMS_PER_PAGE,
+    filter={
+        "op": "or",
+        "args": [
+            {
+                "args": [{"property": "properties.cmip6:variable_id"}, "rsus"],
+                "op": "=",
+            },
+            {
+                "args": [{"property": "properties.cmip6:variable_id"}, "rsds"],
+                "op": "=",
+            },
+        ],
     },
 )
-try:
-    items = list(results.items_as_dicts())
-except pystac_client.exceptions.APIError as exc:
-    print(exc)
-    print("Search 3: failed\n")
+_check(results)
 
-"""
-...but this fails validation. I get an error that seems to limit what is
-possible with query.
-
-'cmip6:variable_id', 'ctx': {'expected': \"'eq', 'ne', 'lt', 'lte', 'gt' or
-'gte'\"}
-
-I also found the following recommendation on the query extension README: "It is
-recommended to implement the Filter Extension instead of the Query Extension.
-Filter Extension is more well-defined, more expressive, and uses the
-standardized CQL2 query language instead of the proprietary language defined
-here."
-
-So I also tried to use filter instead...
-"""
-
-# This does not return anything.
+# The same search using the IN operator
 results = client.search(
     collections="cmip6",
-    max_items=10,
-    filter={"op": "=", "args": [{"property": "cmip6:variable_id"}, "rsus"]},
+    limit=ITEMS_PER_PAGE,
+    filter={
+        "op": "in",
+        "args": [{"property": "properties.cmip6:variable_id"}, ["rsus", "rsds"]],
+    },
 )
-found = set()
-numMatched = 0
-for page in results.pages():
-    numMatched = page.extra_fields["numMatched"]
-    found = found | set([item.properties["cmip6:variable_id"] for item in page.items])
-print(f"Search 4: Found {numMatched} items\n")
-
-"""
-...but this returns no results (but doesn't fail validation).
-"""
+_check(results)
